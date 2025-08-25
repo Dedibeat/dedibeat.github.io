@@ -53,7 +53,7 @@ function renderTable() {
   // search
   if (search) {
     data = data.filter(d => {
-      const hay = (String(d.Name || d.name || '') + ' ' + String(d.Tags || '') + ' ' + String(d['Contest label'] || d.contest || '') + ' ' + String(d._rowId || '')).toLowerCase();
+      const hay = (String(d.Name || d.name || '') + ' ' + String(d.Tags || '') + ' ' + String(d['Contest']) + ' ' + String(d._rowId || '')).toLowerCase();
       return hay.indexOf(search) !== -1;
     });
   }
@@ -139,7 +139,6 @@ function showStatusEditor(td, id, member, status){
       td.textContent = displayText;
       td.className = statusClass(displayText);
 
-      // persist to backend (form-encoded POST to same API pattern as previous file)
       try {
         const url = API_BASE + '?action=' + encodeURIComponent('updateStatus');
         const body = new URLSearchParams({
