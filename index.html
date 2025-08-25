@@ -4,28 +4,22 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Live Problem Set</title>
+
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <link rel="stylesheet" href="styles.css">
   <style>
-    :root{--gap:10px}
-    body{font-family:system-ui,Arial,Helvetica,sans-serif;margin:18px;color:#111}
-    .top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-    .controls{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
-    table{border-collapse:collapse;width:100%;min-width:800px}
-    th,td{border:1px solid #e6e6e6;padding:8px;text-align:left;vertical-align:middle}
-    th{background:#f7f7f7}
-    .difficulty{font-weight:700;padding:2px 6px;border-radius:6px;color:#000;display:inline-block}
-    /* status colors */
-    .status-solved{background:#c8f7c5}   /* AC -> green */
-    .status-unsolved{background:#ffd7d7} /* TL/RE/WA/NI -> red-ish */
-    .status-nosub{background:#f0f0f0}    /* no submission -> gray */
-    input[type=search]{padding:6px}
-    .muted{color:#666;font-size:0.95rem}
-    .stats{display:flex;gap:12px;align-items:center}
-    .btn{padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer}
-    .btn.primary{background:#0366d6;color:#fff;border-color:#0366d6}
-    .small{font-size:0.9rem;padding:4px 6px}
-    .inline-select{width:140px;padding:4px}
-    a.link-small{font-size:0.9rem;margin-left:6px;color:#0366d6}
-    @media (max-width:900px){ table{min-width:700px} }
+
+
+    /* hide 4th column when the table has .tags-hidden */
+    #problemsTable.tags-hidden th:nth-child(4),
+    #problemsTable.tags-hidden td:nth-child(4) {
+      display: none;
+    }
+
+    /* small helper layout for sign-in area */
+    #gsi-container { margin-left: 12px; display:inline-block; }
+    #userArea { display:inline-flex; gap:8px; align-items:center; margin-left:12px; }
   </style>
 </head>
 <body>
@@ -36,7 +30,11 @@
 
   <div class="controls">
     <label>Member:
-      <select id="memberSelect" class="inline-select"></select>
+      <select id="memberSelect" class="inline-select">
+        <option value="Dugar">Dugar</option>
+        <option value="Dalai">Dalai</option>
+        <option value="Amra">Amra</option>
+      </select>
     </label>
 
     <label>Quick filter:
@@ -57,16 +55,33 @@
       </select>
     </label>
 
-    <label>Search: <input id="searchInput" type="search" placeholder="name, tags, contest" /></label>
+    <label>Search:
+      <input id="searchInput" type="search" placeholder="name, tags, contest" />
+    </label>
 
-    <button id="refreshBtn" class="btn small">Refresh</button>
-    <button id="exportBtn" class="btn small">Export statuses CSV</button>
-    <button id="markVisibleSolved" class="btn small">Mark visible → Solved</button>
-    <a class="link-small" href="#" id="helpLink">Help / Setup</a>
+    <button id="toggle-tags" class="btn">Show tags</button>
+
+    <!-- Google Sign-in area -->
+    <div id="gsi-container">
+      <!-- Replace CLIENT_ID below with your OAuth Web application client id -->
+      <div id="g_id_onload"
+           data-client_id="628236096961-kcnq11hjvhlvaosu8rhhsj7on595lt2a.apps.googleusercontent.com"
+           data-callback="handleCredentialResponse"
+           data-auto_prompt="false">
+      </div>
+      <div class="g_id_signin" data-type="standard" data-size="medium"></div>
+    </div>
+
+    <!-- Signed-in user info -->
+    <div id="userArea">
+      <div id="userInfo" style="font-size:0.95rem"></div>
+      <button id="logoutBtn" class="btn" style="display:none">Log out</button>
+    </div>
   </div>
 
   <div style="overflow:auto">
-    <table id="problemsTable" aria-describedby="summary">
+    <!-- table starts with tags-hidden so column won't flash -->
+    <table id="problemsTable" class="tags-hidden" aria-describedby="summary">
       <thead>
         <tr>
           <th style="width:70px">ID</th>
@@ -82,317 +97,6 @@
     </table>
   </div>
 
-<script>
-/* ---------- CONFIG ---------- */
-const API_BASE = 'https://script.google.com/macros/s/AKfycbxnClmvPtVRcJiXVHM5qaZMKxfXCDiHsdUz9VFWUpEaNHM-IGEWhgTM23ZBdr-nVecN/exec'; // your webapp URL
-const TEAM_MEMBERS = ['Dugar', 'Dalai', 'Amra']; // members
-
-/* allowed statuses (lowercase values used for saving) */
-const STATUS_OPTIONS = ['no submission','tl','re','wa','ac','ni'];
-
-/* ---------- STATE ---------- */
-let problems = [];
-let statuses = [];
-let currentMember = TEAM_MEMBERS[0];
-
-/* ---------- API helpers ---------- */
-async function apiGet(action){
-  const url = API_BASE + '?action=' + encodeURIComponent(action);
-  // If using JSONP you can swap this with jsonpGet(action)
-  const res = await fetch(url, {cache:'no-store'});
-  if (!res.ok) throw new Error(`GET ${action} failed: ${res.status}`);
-  return res.json();
-}
-
-async function apiPost(action, data){
-  const url = API_BASE + '?action=' + encodeURIComponent(action);
-  // Ensure id is numeric (prevents '2' + 1 -> '21' bugs)
-  if (data.id !== undefined) data.id = Number(data.id);
-
-  console.log('apiPost ->', url, data);
-  const body = new URLSearchParams(data).toString();
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-    body
-  });
-
-  const text = await res.text();
-  if (!res.ok) {
-    // show server response text for debugging
-    throw new Error('Server returned ' + res.status + ': ' + text);
-  }
-  try {
-    return JSON.parse(text);
-  } catch (err) {
-    throw new Error('Invalid JSON from server: ' + text);
-  }
-}
-
-/* ---------- UI helpers ---------- */
-function createMemberSelect(){
-  const sel = document.getElementById('memberSelect');
-  sel.innerHTML = '';
-  TEAM_MEMBERS.forEach(m => {
-    const o = document.createElement('option'); o.value = m; o.textContent = m; sel.appendChild(o);
-  });
-  sel.value = currentMember;
-  sel.addEventListener('change', ()=>{ currentMember = sel.value; renderTable(); updateSummary(); });
-}
-
-function safeId(p){
-  if (!p) return '';
-  if (p.id !== undefined && p.id !== null && String(p.id).trim() !== '') return String(p.id);
-  if (p.ID !== undefined && p.ID !== null && String(p.ID).trim() !== '') return String(p.ID);
-  if (p.Name !== undefined && p.Name !== null && String(p.Name).trim() !== '') return String(p.Name);
-  if (p.name !== undefined && p.name !== null && String(p.name).trim() !== '') return String(p.name);
-  return '';
-}
-
-/* normalize and find status for an id/member */
-function getStatusFor(id, member){
-  if (id === undefined || id === null || id === '') return 'no submission';
-  const s = statuses.find(r => {
-    const rid = (r.id !== undefined ? r.id : r.ID);
-    const rmember = (r.member !== undefined ? r.member : r.Member);
-    return String(rid) === String(id) && String(rmember) === String(member);
-  });
-  if (!s) return 'no submission';
-  const val = (s.status !== undefined ? s.status : s.Status);
-  if (!val && val !== 0) return 'no submission';
-  return String(val).trim().toLowerCase();
-}
-
-/* status category helpers */
-function isSolvedStatus(status){
-  return String(status||'').trim().toLowerCase() === 'ac';
-}
-function isUnsolvedStatus(status){
-  const s = String(status||'').trim().toLowerCase();
-  return ['tl','re','wa','ni'].includes(s);
-}
-
-/* styling and display helpers */
-function difficultyBadge(d){
-  let val = parseFloat(d);
-  if (Number.isNaN(val)) val = 0;
-  let norm = val;
-  if (val > 1) norm = val / 100;
-  if (norm < 0) norm = 0;
-  if (norm > 1) norm = 1;
-  const hue = Math.round(norm * 120);
-  const bg = `hsl(${hue},70%,85%)`;
-  const percentText = (norm * 100).toFixed(1) + '%';
-  return `<span class="difficulty" style="background:${bg};border:1px solid rgba(0,0,0,0.06)">${percentText}</span>`;
-}
-
-function statusClass(status){
-  if (isSolvedStatus(status)) return 'status-solved';
-  if (isUnsolvedStatus(status)) return 'status-unsolved';
-  return 'status-nosub';
-}
-
-function escapeHtml(str){
-  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-function escapeHtmlAttr(str){
-  return String(str||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-
-/* ---------- Rendering ---------- */
-function renderTable(){
-  const tbody = document.querySelector('#problemsTable tbody');
-  tbody.innerHTML = '';
-  const filter = document.getElementById('filterSelect').value;
-  const search = document.getElementById('searchInput').value.trim().toLowerCase();
-  const sortMode = document.getElementById('sortSelect').value;
-
-  let data = problems.map(p => {
-    const id = safeId(p);
-    return {...p, _rowId: id, Status: getStatusFor(id, currentMember)};
-  });
-
-  // filters using new status semantics
-  if (filter === 'solved') data = data.filter(d => isSolvedStatus(d.Status));
-  else if (filter === 'unsolved') data = data.filter(d => isUnsolvedStatus(d.Status));
-  else if (filter === 'no submission') data = data.filter(d => (d.Status === 'no submission'));
-
-  if (search) {
-    data = data.filter(d => {
-      const hay = (String(d.Name||d.name||'') + ' ' + String(d.Tags||'') + ' ' + String(d['Contest label']||d.contest||'') + ' ' + String(d._rowId||'')).toLowerCase();
-      return hay.indexOf(search) !== -1;
-    });
-  }
-
-  if (sortMode === 'difficulty_desc') data.sort((a,b)=>parseFloat(b.Difficulty||0)-parseFloat(a.Difficulty||0));
-  else if (sortMode === 'difficulty_asc') data.sort((a,b)=>parseFloat(a.Difficulty||0)-parseFloat(b.Difficulty||0));
-  else if (sortMode === 'teams_solved_desc') data.sort((a,b)=>parseFloat(b['Teams solved']||0)-parseFloat(a['Teams solved']||0));
-  else if (sortMode === 'id_asc') data.sort((a,b)=>String(a._rowId).localeCompare(String(b._rowId)));
-
-  data.forEach(p => {
-    const id = p._rowId;
-    const tr = document.createElement('tr');
-
-    const url = p.Name_link || p.name_link || p.Link || p.link || null;
-    const nameText = p.Name || p.name || '';
-    const nameHtml = url
-      ? `<a href="${encodeURI(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(nameText)}</a>`
-      : escapeHtml(nameText);
-
-    // display label: uppercase except 'no submission'
-    const rawStatus = p.Status;
-    const displayLabel = (rawStatus === 'no submission') ? rawStatus : String(rawStatus || '').toUpperCase();
-
-    tr.innerHTML = `
-      <td>${escapeHtml(id)}</td>
-      <td>${escapeHtml(p['Contest label'] || p.contest || '')}</td>
-      <td>${nameHtml}</td>
-      <td>${escapeHtml(p.Tags || '')}</td>
-      <td>${difficultyBadge(p.Difficulty)}</td>
-      <td>${escapeHtml(p['Teams solved'] || '')}</td>
-      <td class="${statusClass(rawStatus)}" data-rowid="${escapeHtmlAttr(id)}">${escapeHtml(displayLabel)}</td>
-    `;
-
-    const statusTd = tr.querySelector('td[data-rowid]');
-    if (statusTd) statusTd.addEventListener('click', ()=>showStatusEditor(statusTd, id));
-    tbody.appendChild(tr);
-  });
-
-  updateSummary();
-}
-
-/* ---------- Inline status editor (uppercase display, lowercase values saved) ---------- */
-function showStatusEditor(td, id){
-  const current = getStatusFor(id, currentMember);
-  const sel = document.createElement('select');
-
-  // Populate options: value=lowercase (saved), text=uppercase except 'no submission'
-  STATUS_OPTIONS.forEach(v=>{
-    const o = document.createElement('option');
-    o.value = v; // save lowercase
-    o.textContent = (v === 'no submission') ? v : v.toUpperCase(); // show uppercase except 'no submission'
-    sel.appendChild(o);
-  });
-
-  sel.value = current;
-  sel.className = 'inline-select';
-  td.innerHTML = '';
-  td.appendChild(sel);
-  sel.focus();
-
-  let done = false;
-  function finish(save){
-    if (done) return;
-    done = true;
-    const newVal = (sel.value || '').toString().trim().toLowerCase();
-    if (save && newVal !== current){
-      // update local statuses array
-      const found = statuses.find(r => String(r.id || r.ID) === String(id) && String((r.member || r.Member)) === String(currentMember));
-      if (found) { found.status = newVal; found.Status = newVal; }
-      else statuses.push({ id: id, member: currentMember, status: newVal });
-
-      // persist to backend; id is row index as your backend expects
-        apiPost('updateStatus', { id: Number(id), member: currentMember, status: newVal })
-        .then(resp => {
-            console.log('updateStatus resp', resp);
-            return reloadStatus();
-        })
-        .then(renderTable)
-        .catch(e => {
-            console.error('Save failed', e);
-            alert('Save failed: ' + e.message);
-            reloadStatus().then(renderTable);
-        });
-    } else {
-      renderTable();
-    }
-  }
-
-  sel.addEventListener('blur', ()=>finish(true));
-  sel.addEventListener('change', ()=>finish(true));
-  sel.addEventListener('keydown', (ev)=>{ if (ev.key === 'Escape') renderTable(); });
-}
-
-/* ---------- Load / reload ---------- */
-async function reloadAll(){
-  try{
-    problems = await apiGet('getProblems') || [];
-    statuses = await apiGet('getStatus') || [];
-    renderTable();
-  }catch(e){
-    console.error(e);
-    alert('Error loading data. Check API_BASE and Apps Script deployment: ' + (e && e.message));
-  }
-}
-
-async function reloadStatus(){
-  try{
-    statuses = await apiGet('getStatus') || [];
-  }catch(e){
-    console.error('reloadStatus failed', e);
-    statuses = [];
-  }
-}
-
-/* ---------- Summary ---------- */
-function updateSummary(){
-  const total = problems.length;
-  const solved = problems.filter(p => isSolvedStatus(getStatusFor(safeId(p), currentMember))).length;
-  const unsolved = problems.filter(p => isUnsolvedStatus(getStatusFor(safeId(p), currentMember))).length;
-  const nosub = total - solved - unsolved;
-  document.getElementById('summary').textContent = `${currentMember}: ${solved} AC · ${unsolved} unsolved · ${nosub} no submission · total ${total}`;
-}
-
-/* ---------- CSV export ---------- */
-function exportCSV(){
-  const rows = [];
-  const ids = problems.map(p => safeId(p));
-  TEAM_MEMBERS.forEach(m => {
-    ids.forEach(id => {
-      const st = statuses.find(s => String(s.id || s.ID) === String(id) && String(s.member || s.Member) === String(m));
-      rows.push([id, m, st ? ( (st.status !== undefined) ? st.status : st.Status ) : 'no submission']);
-    });
-  });
-  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = 'statuses.csv'; a.click(); URL.revokeObjectURL(url);
-}
-
-/* ---------- Bulk action ---------- */
-async function markVisibleSolved(){
-  const tbody = document.querySelector('#problemsTable tbody');
-  const ids = Array.from(tbody.querySelectorAll('td[data-rowid]')).map(td => td.dataset.rowid);
-  if (!ids.length) return;
-  if (!confirm(`Mark ${ids.length} visible problems as AC for ${currentMember}?`)) return;
-  for (const id of ids){
-    try{
-      await apiPost('updateStatus', { id: id, member: currentMember, status: 'ac' });
-    }catch(e){
-      console.error('failed', id, e);
-    }
-  }
-  await reloadStatus();
-  renderTable();
-}
-
-/* ---------- Help popup ---------- */
-function openHelp(){
-  alert('Quick setup:\n1) Problems sheet: header row with columns like "Contest label","Name","Tags","Difficulty","Teams solved"...\n2) getProblems() must return array of objects; ensure each object has obj.id set to the row index (i) and optionally Name_link.\n3) getStatus() should return [{id,member,status}, ...] (your current code does that from H/I/J columns).\n4) Deploy Apps Script as web app and paste the /exec URL into API_BASE.\n\nIf you want different status labels (e.g., show "AC" but save "AC" uppercase to sheet), tell me and I’ll change the saving behavior.');
-}
-
-/* ---------- Events ---------- */
-createMemberSelect();
-document.getElementById('refreshBtn').addEventListener('click', ()=>reloadAll());
-document.getElementById('filterSelect').addEventListener('change', renderTable);
-document.getElementById('sortSelect').addEventListener('change', renderTable);
-document.getElementById('searchInput').addEventListener('input', renderTable);
-document.getElementById('exportBtn').addEventListener('click', exportCSV);
-document.getElementById('markVisibleSolved').addEventListener('click', markVisibleSolved);
-document.getElementById('helpLink').addEventListener('click', (e)=>{ e.preventDefault(); openHelp(); });
-
-/* ---------- Initial load ---------- */
-reloadAll();
-</script>
+  <script src="scripts.js"></script>
 </body>
 </html>

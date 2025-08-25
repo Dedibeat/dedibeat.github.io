@@ -1,0 +1,21 @@
+    :root{--gap:10px}
+    body{font-family:system-ui,Arial,Helvetica,sans-serif;margin:18px;color:#111}
+    .top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+    table{border-collapse:collapse;width:100%;min-width:800px}
+    th,td{border:1px solid #e6e6e6;padding:8px;text-align:left;vertical-align:middle}
+    th{background:#f7f7f7}
+    .difficulty{font-weight:700;padding:2px 6px;border-radius:6px;color:#000;display:inline-block}
+    /* status colors */
+    .status-solved{background:#c8f7c5}   /* AC -> green */
+    .status-unsolved{background:#ffd7d7} /* TL/RE/WA/NI -> red-ish */
+    .status-nosub{background:#f0f0f0}    /* no submission -> gray */
+    input[type=search]{padding:6px}
+    .muted{color:#666;font-size:0.95rem}
+    .stats{display:flex;gap:12px;align-items:center}
+    .btn{padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer}
+    .btn.primary{background:#0366d6;color:#fff;border-color:#0366d6}
+    .small{font-size:0.9rem;padding:4px 6px}
+    .inline-select{width:140px;padding:4px}
+    a.link-small{font-size:0.9rem;margin-left:6px;color:#0366d6}
+    @media (max-width:900px){ table{min-width:700px} }
