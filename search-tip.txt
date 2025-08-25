@@ -1,0 +1,9 @@
+A B → A AND B
+
+A | B → A OR B
+
+A -B → A AND (NOT B)
+
+"A B" → phrase search
+
+(A | B) C → (A OR B) AND C
