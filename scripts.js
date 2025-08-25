@@ -1,3 +1,4 @@
+import { parseSearch, evalSearchAst } from './search.js';
 
 const API_BASE = 'https://script.google.com/macros/s/AKfycbxnClmvPtVRcJiXVHM5qaZMKxfXCDiHsdUz9VFWUpEaNHM-IGEWhgTM23ZBdr-nVecN/exec';
 
@@ -52,10 +53,25 @@ function renderTable() {
 
   // search
   if (search) {
-    data = data.filter(d => {
-      const hay = (String(d.Name || d.name || '') + ' ' + String(d.Tags || '') + ' ' + String(d['Contest']) + ' ' + String(d._rowId || '')).toLowerCase();
-      return hay.indexOf(search) !== -1;
-    });
+    const hayGetter = d =>
+      (String(d.Name || d.name || '') + ' ' +
+       String(d.Tags || '') + ' ' +
+       String(d['Contest'] || '') + ' ' +
+       String(d._rowId || '')).toLowerCase();
+
+    let ast = null;
+    try {
+      ast = parseSearch(search);
+    } catch (err) {
+      console.warn('Parse error, fallback substring:', err);
+    }
+
+    if (ast) {
+      data = data.filter(d => evalSearchAst(ast, hayGetter(d)));
+    } else {
+      const needle = search.toLowerCase();
+      data = data.filter(d => hayGetter(d).includes(needle));
+    }
   }
 
   // filter by member status
